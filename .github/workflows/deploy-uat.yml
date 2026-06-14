@@ -8,7 +8,9 @@ jobs:
   deploy:
     name: Delta Deploy to UAT Org
     runs-on: ubuntu-latest
-    environment: uat # Requires 1 required reviewer configured in GitHub → Settings → Environments
+    environment: uat
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
