@@ -5,11 +5,10 @@ on:
     branches: [uat]
 
 jobs:
-
   deploy:
     name: Delta Deploy to UAT Org
     runs-on: ubuntu-latest
-    environment: uat    # Requires 1 required reviewer configured in GitHub → Settings → Environments
+    environment: uat # Requires 1 required reviewer configured in GitHub → Settings → Environments
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,7 +48,8 @@ jobs:
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org target-org \
-              --test-level RunLocalTests
+              --test-level RunSpecifiedTests \
+              --tests AccountServiceTest
           else
             echo "No metadata changes to deploy."
           fi

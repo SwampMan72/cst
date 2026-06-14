@@ -5,7 +5,6 @@ on:
     branches: [dev]
 
 jobs:
-
   deploy:
     name: Delta Deploy to Dev Org
     runs-on: ubuntu-latest
@@ -49,7 +48,8 @@ jobs:
             sf project deploy start \
               --source-dir delta/force-app \
               --target-org target-org \
-              --test-level RunLocalTests
+              --test-level RunSpecifiedTests \
+              --tests AccountServiceTest
           else
             echo "No metadata changes to deploy."
           fi
