@@ -1,8 +1,10 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<ruleset name="CST Salesforce PMD Rules"
-    xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+<?xml version="1.0" encoding="UTF-8" ?>
+<ruleset
+  name="CST Salesforce PMD Rules"
+  xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd"
+>
 
     <description>CST PMD ruleset for Salesforce Apex code quality</description>
 
@@ -16,15 +18,17 @@
     <rule ref="category/apex/security.xml/ApexCRUDViolation" />
 
     <!-- Best Practices -->
-    <rule ref="category/apex/bestpractices.xml/ApexUnitTestClassShouldHaveAsserts" />
-    <rule ref="category/apex/bestpractices.xml/ApexUnitTestShouldNotUseSeeAllDataTrue" />
+    <rule
+    ref="category/apex/bestpractices.xml/ApexUnitTestClassShouldHaveAsserts"
+  />
+    <rule
+    ref="category/apex/bestpractices.xml/ApexUnitTestShouldNotUseSeeAllDataTrue"
+  />
     <rule ref="category/apex/bestpractices.xml/AvoidGlobalModifier" />
     <rule ref="category/apex/bestpractices.xml/AvoidLogicInTrigger" />
 
     <!-- Performance -->
-    <rule ref="category/apex/performance.xml/AvoidDmlStatementsInLoops" />
-    <rule ref="category/apex/performance.xml/AvoidSoqlInLoops" />
-    <rule ref="category/apex/performance.xml/AvoidSoslInLoops" />
+    <rule ref="category/apex/performance.xml/OperationWithLimitsInLoop" />
 
     <!-- Code Style -->
     <rule ref="category/apex/codestyle.xml/IfStmtsMustUseBraces" />
