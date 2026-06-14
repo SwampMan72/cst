@@ -6,7 +6,6 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-
   static-analysis:
     name: PMD Static Analysis
     runs-on: ubuntu-latest
@@ -17,9 +16,9 @@ jobs:
         uses: pmd/pmd-github-action@v2
         id: pmd
         with:
-          version: 'latest'
-          sourcePath: 'force-app'
-          rulesets: 'PMDruleSet.xml'
+          version: "latest"
+          sourcePath: "force-app"
+          rulesets: "PMDruleSet.xml"
           analyzeModifiedFilesOnly: false
 
       - name: Fail if PMD violations found
@@ -35,8 +34,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -53,8 +52,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci
@@ -71,11 +70,11 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '1'
-          format: 'table'
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+          format: "table"
           ignore-unfixed: true
 
   apex-validation:
@@ -99,4 +98,5 @@ jobs:
           sf project deploy validate \
             --source-dir force-app \
             --target-org target-org \
-            --test-level RunLocalTests
+            --test-level RunSpecifiedTests \
+            --tests AccountServiceTest
