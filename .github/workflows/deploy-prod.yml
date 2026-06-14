@@ -1,0 +1,65 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+
+  deploy:
+    name: Delta Deploy to Production Org
+    runs-on: ubuntu-latest
+    environment: prod    # Requires 2 required reviewers configured in GitHub → Settings → Environments
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install SF CLI
+        run: npm install -g @salesforce/cli@latest
+
+      - name: Install SFDX Git Delta plugin
+        run: echo y | sf plugins install sfdx-git-delta
+
+      - name: Authenticate to Production Org
+        run: |
+          echo "${{ secrets.SF_AUTH_URL }}" > auth.url
+          sf org login sfdx-url --sfdx-url-file auth.url --alias target-org --set-default
+          rm -f auth.url
+
+      - name: Calculate delta since last deployment
+        run: |
+          mkdir -p delta
+          if git rev-parse "refs/tags/deployed/prod" >/dev/null 2>&1; then
+            FROM_SHA=$(git rev-parse "refs/tags/deployed/prod")
+          else
+            FROM_SHA=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "Deploying delta from $FROM_SHA to HEAD"
+          sf sgd source delta \
+            --from "$FROM_SHA" \
+            --to HEAD \
+            --output delta \
+            --generate-delta \
+            --source-dir force-app
+
+      - name: Deploy delta to Production Org
+        run: |
+          if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
+            sf project deploy start \
+              --source-dir delta/force-app \
+              --target-org target-org \
+              --test-level RunLocalTests
+          else
+            echo "No metadata changes to deploy."
+          fi
+
+      - name: Tag release and mark deployment
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          RELEASE_TAG="release/$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          git tag "$RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+          git tag -f deployed/prod
+          git push origin refs/tags/deployed/prod --force
