@@ -1,20 +1,27 @@
-name: Deploy to UAT
+name: Promote to QA
 
 on:
-  push:
-    branches: [uat]
+  workflow_dispatch:
 
 jobs:
   deploy:
-    name: Delta Deploy to UAT Org
+    name: Promote and Deploy to QA Org
     runs-on: ubuntu-latest
-    environment: uat
+    environment: qa
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: qa
+
+      - name: Merge dev into qa
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git merge origin/dev --ff-only
+          git push origin qa
 
       - name: Install SF CLI
         run: npm install -g @salesforce/cli@latest
@@ -22,7 +29,7 @@ jobs:
       - name: Install SFDX Git Delta plugin
         run: echo y | sf plugins install sfdx-git-delta
 
-      - name: Authenticate to UAT Org
+      - name: Authenticate to QA Org
         run: |
           echo "${{ secrets.SF_AUTH_URL }}" > auth.url
           sf org login sfdx-url --sfdx-url-file auth.url --alias target-org --set-default
@@ -31,8 +38,8 @@ jobs:
       - name: Calculate delta since last deployment
         run: |
           mkdir -p delta
-          if git rev-parse "refs/tags/deployed/uat" >/dev/null 2>&1; then
-            FROM_SHA=$(git rev-parse "refs/tags/deployed/uat")
+          if git rev-parse "refs/tags/deployed/qa" >/dev/null 2>&1; then
+            FROM_SHA=$(git rev-parse "refs/tags/deployed/qa")
           else
             FROM_SHA=$(git rev-list --max-parents=0 HEAD)
           fi
@@ -44,7 +51,7 @@ jobs:
             --generate-delta \
             --source-dir force-app
 
-      - name: Deploy delta to UAT Org
+      - name: Deploy to QA Org
         run: |
           if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
             sf project deploy start \
@@ -60,5 +67,5 @@ jobs:
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git tag -f deployed/uat
-          git push origin refs/tags/deployed/uat --force
+          git tag -f deployed/qa
+          git push origin refs/tags/deployed/qa --force

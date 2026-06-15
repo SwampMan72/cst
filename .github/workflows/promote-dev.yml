@@ -1,4 +1,4 @@
-name: Deploy to Dev
+name: Promote to Dev
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
 
 jobs:
   deploy:
-    name: Delta Deploy to Dev Org
+    name: Deploy to Dev Org
     runs-on: ubuntu-latest
     environment: dev
     permissions:
@@ -44,7 +44,7 @@ jobs:
             --generate-delta \
             --source-dir force-app
 
-      - name: Deploy delta to Dev Org
+      - name: Deploy to Dev Org
         run: |
           if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
             sf project deploy start \
