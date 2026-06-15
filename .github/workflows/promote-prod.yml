@@ -1,93 +1,30 @@
 name: Promote to Production
 
+# Standard flow:     leave release-branch empty — promotes from UAT
+# Release branch:    enter release/sprint-15 — promotes that specific branch to prod
+#                    (release branch must contain only features approved for this release)
+
 on:
   workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Release branch to promote (e.g. release/sprint-15). Leave empty to promote from UAT."
+        required: false
+        type: string
+        default: ""
 
 jobs:
-  static-analysis:
-    name: PMD Static Analysis
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: uat
-
-      - name: Run PMD
-        uses: pmd/pmd-github-action@v2
-        id: pmd
-        with:
-          version: "latest"
-          sourcePath: "force-app"
-          rulesets: "PMDruleSet.xml"
-          analyzeModifiedFilesOnly: false
-
-      - name: Fail if PMD violations found
-        if: steps.pmd.outputs.violations != '0'
-        run: exit 1
-
-  unit-tests:
-    name: LWC Jest Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: uat
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run Jest tests
-        run: npm run test:unit
-
-  dependency-scan:
-    name: Dependency Vulnerability Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: uat
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Audit npm dependencies (fail on high or critical)
-        run: npm audit --audit-level=high
-
-  security-scan:
-    name: Trivy Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: uat
-
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: "fs"
-          scan-ref: "."
-          severity: "HIGH,CRITICAL"
-          exit-code: "1"
-          format: "table"
-          ignore-unfixed: true
+  scans:
+    name: Security Scans
+    uses: ./.github/workflows/shared-scans.yml
+    with:
+      ref: ${{ inputs.release-branch != '' && inputs.release-branch || 'uat' }}
 
   deploy:
     name: Promote and Deploy to Production Org
     runs-on: ubuntu-latest
     environment: prod
-    needs: [static-analysis, unit-tests, dependency-scan, security-scan]
+    needs: [scans]
     permissions:
       contents: write
     steps:
@@ -96,59 +33,82 @@ jobs:
           fetch-depth: 0
           ref: main
 
-      - name: Merge uat into main
+      - name: Merge source into main
         run: |
+          SOURCE="${{ inputs.release-branch != '' && inputs.release-branch || 'uat' }}"
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git merge origin/uat --ff-only
+          git merge "origin/$SOURCE" --ff-only
           git push origin main
 
-      - name: Install SF CLI
-        run: npm install -g @salesforce/cli@latest
+      - name: Salesforce Setup
+        uses: ./.github/actions/sf-setup
+        with:
+          auth-url: ${{ secrets.SF_AUTH_URL }}
 
-      - name: Install SFDX Git Delta plugin
-        run: echo y | sf plugins install sfdx-git-delta
+      - name: Delta Deploy to Production
+        uses: ./.github/actions/sf-delta-deploy
+        with:
+          environment: prod
+          test-class: AccountServiceTest
 
-      - name: Authenticate to Production Org
+      - name: Create GitHub Release and tag deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "${{ secrets.SF_AUTH_URL }}" > auth.url
-          sf org login sfdx-url --sfdx-url-file auth.url --alias target-org --set-default
-          rm -f auth.url
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          RELEASE_DATE=$(date +'%Y.%m.%d')
+          RELEASE_TAG="release/${RELEASE_DATE}-${SHORT_SHA}"
+          SOURCE="${{ inputs.release-branch != '' && inputs.release-branch || 'uat' }}"
 
-      - name: Calculate delta since last deployment
-        run: |
-          mkdir -p delta
-          if git rev-parse "refs/tags/deployed/prod" >/dev/null 2>&1; then
-            FROM_SHA=$(git rev-parse "refs/tags/deployed/prod")
-          else
-            FROM_SHA=$(git rev-list --max-parents=0 HEAD)
-          fi
-          echo "Deploying delta from $FROM_SHA to HEAD"
-          sf sgd source delta \
-            --from "$FROM_SHA" \
-            --to HEAD \
-            --output delta \
-            --generate-delta \
-            --source-dir force-app
-
-      - name: Deploy to Production Org
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org target-org \
-              --test-level RunSpecifiedTests \
-              --tests AccountServiceTest
-          else
-            echo "No metadata changes to deploy."
-          fi
-
-      - name: Tag release and mark deployment
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          RELEASE_TAG="release/$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
           git tag "$RELEASE_TAG"
           git push origin "$RELEASE_TAG"
+
           git tag -f deployed/prod
           git push origin refs/tags/deployed/prod --force
+
+          NOTES_FILE=$(mktemp)
+          cat > "$NOTES_FILE" << EOF
+          ## Production Deployment
+
+          **Date:** $(date +'%Y-%m-%d %H:%M UTC')
+          **Triggered by:** ${{ github.actor }}
+          **Source:** ${SOURCE}
+          **Commit:** $(git rev-parse HEAD)
+
+          Promoted via automated pipeline. All security scans passed. Production approval granted by ${{ github.actor }}.
+          EOF
+
+          gh release create "$RELEASE_TAG" \
+            --title "Production Release ${RELEASE_DATE}" \
+            --notes-file "$NOTES_FILE" \
+            --latest
+
+      - name: Notify Teams — Production deployment
+        if: always()
+        continue-on-error: true
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -z "$TEAMS_WEBHOOK_URL" ] && echo "TEAMS_WEBHOOK_URL not configured — skipping notification." && exit 0
+          COLOR=$([ "$STATUS" = "success" ] && echo "7030A0" || echo "FF0000")
+          TITLE=$([ "$STATUS" = "success" ] && echo "Production Deployment Succeeded" || echo "Production Deployment FAILED")
+          SOURCE="${{ inputs.release-branch != '' && inputs.release-branch || 'uat' }}"
+          curl -s -H "Content-Type: application/json" -d "{
+            \"@type\": \"MessageCard\",
+            \"@context\": \"http://schema.org/extensions\",
+            \"themeColor\": \"$COLOR\",
+            \"summary\": \"$TITLE\",
+            \"sections\": [{
+              \"activityTitle\": \"$TITLE\",
+              \"facts\": [
+                {\"name\": \"Triggered by\", \"value\": \"$ACTOR\"},
+                {\"name\": \"Source\", \"value\": \"$SOURCE\"},
+                {\"name\": \"Commit\", \"value\": \"${{ github.sha }}\"},
+                {\"name\": \"Pipeline Run\", \"value\": \"$RUN_URL\"}
+              ]
+            }]
+          }" "$TEAMS_WEBHOOK_URL"

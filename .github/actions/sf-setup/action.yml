@@ -1,0 +1,25 @@
+name: Salesforce Setup
+description: Installs SF CLI, SFDX Git Delta plugin, and authenticates to a Salesforce org
+
+inputs:
+  auth-url:
+    description: SFDX auth URL (pass secrets.SF_AUTH_URL from the calling workflow)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install SF CLI
+      shell: bash
+      run: npm install -g @salesforce/cli@latest
+
+    - name: Install SFDX Git Delta plugin
+      shell: bash
+      run: echo y | sf plugins install sfdx-git-delta
+
+    - name: Authenticate to Org
+      shell: bash
+      run: |
+        echo "${{ inputs.auth-url }}" > auth.url
+        sf org login sfdx-url --sfdx-url-file auth.url --alias target-org --set-default
+        rm -f auth.url

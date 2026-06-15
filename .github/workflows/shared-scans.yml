@@ -1,0 +1,94 @@
+name: Shared Security Scans
+
+# Called by pr-validation.yml and promote-prod.yml via workflow_call.
+# Pass ref when you need to scan a specific branch (e.g. uat, release/sprint-15).
+# Omit ref (leave as default '') to scan the triggering commit — correct for PR events.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to scan. Leave empty to use the default checkout for the calling event.
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  static-analysis:
+    name: PMD Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Run PMD
+        uses: pmd/pmd-github-action@v2
+        id: pmd
+        with:
+          version: "latest"
+          sourcePath: "force-app"
+          rulesets: "PMDruleSet.xml"
+          analyzeModifiedFilesOnly: false
+
+      - name: Fail if PMD violations found
+        if: steps.pmd.outputs.violations != '0'
+        run: exit 1
+
+  unit-tests:
+    name: LWC Jest Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Jest tests
+        run: npm run test:unit
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit npm dependencies (fail on high or critical)
+        run: npm audit --audit-level=high
+
+  security-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          severity: "HIGH,CRITICAL"
+          exit-code: "1"
+          format: "table"
+          ignore-unfixed: true

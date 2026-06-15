@@ -1,0 +1,44 @@
+name: Salesforce Delta Deploy
+description: Calculates metadata delta from last deployment tag and deploys only changed components
+
+inputs:
+  environment:
+    description: Target environment name — must match the deployed/<environment> tag (dev, qa, uat, prod)
+    required: true
+  test-class:
+    description: Apex test class(es) to run, space-separated
+    required: false
+    default: AccountServiceTest
+
+runs:
+  using: composite
+  steps:
+    - name: Calculate delta since last deployment
+      shell: bash
+      run: |
+        mkdir -p delta
+        if git rev-parse "refs/tags/deployed/${{ inputs.environment }}" >/dev/null 2>&1; then
+          FROM_SHA=$(git rev-parse "refs/tags/deployed/${{ inputs.environment }}")
+        else
+          FROM_SHA=$(git rev-list --max-parents=0 HEAD)
+        fi
+        echo "Deploying delta from $FROM_SHA to HEAD"
+        sf sgd source delta \
+          --from "$FROM_SHA" \
+          --to HEAD \
+          --output delta \
+          --generate-delta \
+          --source-dir force-app
+
+    - name: Deploy to ${{ inputs.environment }} org
+      shell: bash
+      run: |
+        if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
+          sf project deploy start \
+            --source-dir delta/force-app \
+            --target-org target-org \
+            --test-level RunSpecifiedTests \
+            --tests ${{ inputs.test-class }}
+        else
+          echo "No metadata changes detected — skipping deployment."
+        fi

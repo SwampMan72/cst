@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Keep npm packages current — raises PRs against dev branch
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    target-branch: dev
+    labels:
+      - dependencies
+
+  # Keep GitHub Actions pinned versions current — raises PRs against dev branch
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    open-pull-requests-limit: 5
+    target-branch: dev
+    labels:
+      - dependencies
+      - github-actions

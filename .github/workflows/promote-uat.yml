@@ -23,49 +23,45 @@ jobs:
           git merge origin/qa --ff-only
           git push origin uat
 
-      - name: Install SF CLI
-        run: npm install -g @salesforce/cli@latest
+      - name: Salesforce Setup
+        uses: ./.github/actions/sf-setup
+        with:
+          auth-url: ${{ secrets.SF_AUTH_URL }}
 
-      - name: Install SFDX Git Delta plugin
-        run: echo y | sf plugins install sfdx-git-delta
-
-      - name: Authenticate to UAT Org
-        run: |
-          echo "${{ secrets.SF_AUTH_URL }}" > auth.url
-          sf org login sfdx-url --sfdx-url-file auth.url --alias target-org --set-default
-          rm -f auth.url
-
-      - name: Calculate delta since last deployment
-        run: |
-          mkdir -p delta
-          if git rev-parse "refs/tags/deployed/uat" >/dev/null 2>&1; then
-            FROM_SHA=$(git rev-parse "refs/tags/deployed/uat")
-          else
-            FROM_SHA=$(git rev-list --max-parents=0 HEAD)
-          fi
-          echo "Deploying delta from $FROM_SHA to HEAD"
-          sf sgd source delta \
-            --from "$FROM_SHA" \
-            --to HEAD \
-            --output delta \
-            --generate-delta \
-            --source-dir force-app
-
-      - name: Deploy to UAT Org
-        run: |
-          if [ -d "delta/force-app" ] && [ "$(ls -A delta/force-app)" ]; then
-            sf project deploy start \
-              --source-dir delta/force-app \
-              --target-org target-org \
-              --test-level RunSpecifiedTests \
-              --tests AccountServiceTest
-          else
-            echo "No metadata changes to deploy."
-          fi
+      - name: Delta Deploy to UAT
+        uses: ./.github/actions/sf-delta-deploy
+        with:
+          environment: uat
+          test-class: AccountServiceTest
 
       - name: Tag successful deployment
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
           git tag -f deployed/uat
           git push origin refs/tags/deployed/uat --force
+
+      - name: Notify Teams — UAT ready for sign-off
+        if: always()
+        continue-on-error: true
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+          STATUS: ${{ job.status }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -z "$TEAMS_WEBHOOK_URL" ] && echo "TEAMS_WEBHOOK_URL not configured — skipping notification." && exit 0
+          COLOR=$([ "$STATUS" = "success" ] && echo "0070C0" || echo "FF0000")
+          TITLE=$([ "$STATUS" = "success" ] && echo "UAT Deployment Succeeded — Ready for Sign-Off" || echo "UAT Deployment Failed")
+          curl -s -H "Content-Type: application/json" -d "{
+            \"@type\": \"MessageCard\",
+            \"@context\": \"http://schema.org/extensions\",
+            \"themeColor\": \"$COLOR\",
+            \"summary\": \"$TITLE\",
+            \"sections\": [{
+              \"activityTitle\": \"$TITLE\",
+              \"facts\": [
+                {\"name\": \"Triggered by\", \"value\": \"$ACTOR\"},
+                {\"name\": \"Commit\", \"value\": \"${{ github.sha }}\"},
+                {\"name\": \"Pipeline Run\", \"value\": \"$RUN_URL\"}
+              ]
+            }]
+          }" "$TEAMS_WEBHOOK_URL"
