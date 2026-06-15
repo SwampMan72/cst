@@ -14,4 +14,8 @@ public with sharing class AccountService {
     Database.insert(acc, AccessLevel.USER_MODE);
     return acc;
   }
+
+  public static Integer getAccountCount() {
+    return [SELECT COUNT() FROM Account WITH USER_MODE];
+  }
 }
